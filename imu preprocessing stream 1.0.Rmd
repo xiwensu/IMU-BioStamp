@@ -1,0 +1,389 @@
+---
+title: "imu preprocessing"
+output: html_document
+date: "2024-03-19"
+---
+
+#cut out session recording time
+```{r message=FALSE}
+
+# setting working dir
+setwd("/Users/xiwensu/Documents/IMU/5min_seg")
+
+# load IMU input data from excel spreadsheet: right arm
+IMUinput_RA <- read_excel("/Users/xiwensu/Documents/IMU/spreadsheet-note/231113_IMU_input.xlsx", sheet = "Right Arm")
+setDT(IMUinput_RA) # convert into data.table format
+# IMUinput_RA <- IMUinput_RA[,c(1:5,8:9)]
+# colnames(IMUinput_RA) <- c("subjID","T1","T2","Stime","Etime","Gyro_T1","Gyro_T2") # add col names if need to change
+IMUinput_RA[,T1:=as.numeric(T1)][,T2:=as.numeric(T2)][,Stime:=as.numeric(Stime)][,Etime:=as.numeric(Etime)] # convert into numeric
+
+# load IMU input data: left arm
+IMUinput_LA <- read_excel("/Users/xiwensu/Documents/IMU/spreadsheet-note/231113_IMU_input.xlsx", sheet = "Left Arm")
+setDT(IMUinput_LA) # convert into data.table format
+# colnames(IMUinput_LA) <- c("subjID","T1","T2","Gyro_T1","Gyro_T2") # add col names
+IMUinput_LA[,T1:=as.numeric(T1)][,T2:=as.numeric(T2)] # convert into numeric
+
+# find all files: subject + session
+filelist <- data.table("filename" = list.files("~/Documents/IMU/data collection/"))
+filelist <- filelist[order(filename)]
+
+# extremity + accel/gyro
+URULlist <- c("UR","UL")
+AGlist <- c("accel","gyro")
+
+##################### start to analyze ########################################
+
+for (whichfile in filelist$filename) {
+  
+  tryCatch({
+    
+    
+    # for (i in 1:nrow(filelist)) {
+    #   whichfile = filelist[i,filename] 
+    
+    # find a file
+    # whichfile <- filelist[37,filename] # find subject data file name
+    
+    # find subject id + session 
+    whichsubjsess <- str_sub(whichfile,-6,-1) 
+    
+    # extremity 
+    for (URUL in URULlist) {
+      
+      # accel/gyro
+      for (AG in AGlist) {
+        
+        # find out T1 and T2, Stime and Etime by subjectID
+        if (AG == "accel") {
+          # "accel"
+          if (URUL == "UR") {
+            T1 = IMUinput_RA[subjID==whichsubjsess, T1]
+            T2 = IMUinput_RA[subjID==whichsubjsess, T2]
+          } 
+          if (URUL == "UL") {
+            T1 = IMUinput_LA[subjID==whichsubjsess, T1]
+            T2 = IMUinput_LA[subjID==whichsubjsess, T2]
+          } 
+        } else {
+          # "gyro
+          if (URUL == "UR") {
+            # Gyro T1 
+            # Gyro_T1_samediff = IMUinput_RA[subjID==whichsubjsess, Gyro_T1]
+            # if (Gyro_T1_samediff == "same") { 
+            #   T1 = IMUinput_RA[subjID==whichsubjsess, T1]
+            # } else {
+              T1 = as.numeric(IMUinput_RA[subjID==whichsubjsess, Gyro_T1])
+            # }
+            # Gyro T2
+            # Gyro_T2_samediff = IMUinput_RA[subjID==whichsubjsess, Gyro_T2]
+            # if (Gyro_T2_samediff == "same") { 
+            #   T2 = IMUinput_RA[subjID==whichsubjsess, T2]
+            # } else {
+              T2 = as.numeric(IMUinput_RA[subjID==whichsubjsess, Gyro_T2])
+            # }
+          }
+          if (URUL == "UL") {
+            # Gyro T1 
+            # Gyro_T1_samediff = IMUinput_LA[subjID==whichsubjsess, Gyro_T1]
+            # if (Gyro_T1_samediff == "same") { 
+            #   T1 = IMUinput_LA[subjID==whichsubjsess, T1]
+            # } else {
+              T1 = as.numeric(IMUinput_LA[subjID==whichsubjsess, Gyro_T1])
+            # }
+            # Gyro T2
+            # Gyro_T2_samediff = IMUinput_LA[subjID==whichsubjsess, Gyro_T2]
+            # if (Gyro_T2_samediff == "same") { 
+            #   T2 = IMUinput_LA[subjID==whichsubjsess, T2]
+            # } else {
+              T2 = as.numeric(IMUinput_LA[subjID==whichsubjsess, Gyro_T2])
+            # }
+          }  
+        }
+        
+        # use right arm data 
+        Stime = IMUinput_RA[subjID==whichsubjsess, Stime]
+        Etime = IMUinput_RA[subjID==whichsubjsess, Etime]
+        
+        
+        
+        # read file by subject
+        # SM01_RA_accel <- read_csv("~/Documents/IMU/data collection/23.6.13 SM15_2/UR/accel.csv")
+        SM01_RA_accel <- read_csv(paste0("~/Documents/IMU/data collection/", whichfile, "/",URUL,"/",AG,".csv"),show_col_types = FALSE)
+        
+        accelgyro <- SM01_RA_accel
+        time<-accelgyro$`Timestamp (microseconds)` / 1000000
+        
+        if (AG =="accel") {
+          # accel
+          x<-accelgyro$`Accel X (g)`
+          y<-accelgyro$`Accel Y (g)`
+          z<-accelgyro$`Accel Z (g)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>% 
+            mutate(x2 = x * 9.80665) %>% mutate(y2 = y * 9.80665) %>% 
+            mutate(z2 = z * 9.80665) %>% 
+            mutate(mag = sqrt((x2 * x2) + (y2 * y2) + (z2 * z2))) %>%
+            mutate(id_a=row_number())
+        } else {
+          # gyro
+          x<-accelgyro$`Gyro X (°/s)`
+          y<-accelgyro$`Gyro Y (°/s)`
+          z<-accelgyro$`Gyro Z (°/s)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>%
+            mutate(x3 = x * 0.0174533) %>% mutate(y3 = y * 0.0174533) %>%
+            mutate(z3 = z * 0.0174533) %>%
+            mutate(mag = sqrt((x3 * x3) + (y3 * y3) + (z3 * z3))) %>%
+            mutate(id_a=row_number())
+        }
+        
+        
+        dim(accelgyro)
+        # r_strt <- accelgyro %>% filter(times >28.5 & times < 30)
+        r_strt <- accelgyro %>% filter(times >T1 & times < T2)
+        
+        # plot 
+        ggplot(r_strt, aes(x=times, y=mag)) + geom_line()
+        
+        # find peak
+        maxrow = r_strt[which.max(r_strt$mag),]$id_a
+        accelgyro<- accelgyro[-(1:maxrow),]
+        accelgyro <- accelgyro %>% mutate(times = times - min(times)) 
+        dim(accelgyro)
+        # accelgyro<- accelgyro %>% filter(times>356 & times < 885) %>% mutate(mag_d = mag-median(mag))
+        accelgyro<- accelgyro %>% filter(times>Stime & times < Etime) %>% mutate(mag_d = mag-median(mag))
+        dim(accelgyro)
+        sm03ra6<-accelgyro
+        
+        # write.csv(x=sm03ra6,file="SM15_2mon_Uaccelgyro.csv")
+        write.csv(x=sm03ra6,file=paste0(str_sub(whichfile,-6,-1),"mon_",URUL,"_",AG,"_231113.csv"))
+        
+        
+        # print T1, T2, Stime, Etime
+        print(paste0(whichfile,": ",URUL, "/", AG," T1 = ", T1, ", T2 = ", T2, ", Stime = ", Stime, ", Etime = ", Etime))
+        
+      } # AG list loop
+    } # URUL list loop
+    
+    
+  }, 
+  error=function(e) {
+    
+    print(paste0("error: ", whichfile))
+    
+  },
+  warning = function(w){
+    
+    return(NA)
+    
+  }) # tryCatch
+  
+} # subject + session loop
+
+
+# ################################################################################
+```
+
+#find bouts - using accel + gyro filter
+#accel filter
+```{r}
+filelist <- data.table("filename" = list.files("~/Documents/IMU/5min_seg/accel"))
+filelist <- filelist[order(filename)]
+head(filelist1)
+# extremity + accel/gyro
+
+for (whichfile in filelist$filename) {
+  r_accel <- read_csv(paste0("~/Documents/IMU/5min_seg/accel/", whichfile),show_col_types = FALSE)
+r_accel$SMA31 <- TTR::SMA(r_accel$mag_d,n=31)
+
+#find individual local maximum points
+attach(r_accel)
+max.time=times[ggpmisc:::find_peaks(SMA31)]
+max.mag=mag_d[ggpmisc:::find_peaks(SMA31)]
+df_max<-data.frame(max.mag)
+df_max<- df_max%>%filter(max.mag>=1) %>%
+  summarise(maxima=mean(max.mag)-1/2*sd(max.mag))
+maxima<-df_max$maxima
+maxima
+
+#find individual local minimum points
+min.time<-times[ggpmisc:::find_peaks(-SMA31)]
+min.mag<-mag_d[ggpmisc:::find_peaks(-SMA31)]
+df_min<-data.frame(min.mag)
+df_min<- df_min%>%filter(min.mag<=-1)%>%
+  summarise(minima=mean(min.mag)+1/2*sd(min.mag))
+minima<-df_min$minima
+minima
+
+#filter using maxima and minima
+r_accel <- r_accel %>% filter(mag_d>maxima | mag_d<minima)
+dim_accel<-dim(r_accel)
+write.csv(x=r_accel,file=paste0(str_sub(whichfile,1,19),"filteredforbouts.csv"))
+print(paste0(whichfile,": ", dim_accel))
+}
+
+```
+
+#gyro
+```{r}
+filelist <- data.table("filename" = list.files("~/Documents/IMU/5min_seg/gyro"))
+filelist <- filelist[order(filename)]
+head(filelist1)
+# extremity + accel/gyro
+
+for (whichfile in filelist$filename) {
+  r_gyro <- read_csv(paste0("~/Documents/IMU/5min_seg/gyro/", whichfile),show_col_types = FALSE)
+r_gyro$w_SMA31 <- TTR::SMA(r_gyro$mag_d,n=31)
+
+attach(r_gyro)
+max.w_mag=mag_d[ggpmisc:::find_peaks(w_SMA31)]
+df_w_max<-data.frame(max.w_mag)
+df_w_max<- df_w_max%>%filter(max.w_mag>=0.32) %>%
+  summarise(w_maxima=mean(max.w_mag)-1/2*sd(max.w_mag))
+w_maxima<-df_w_max$w_maxima
+w_maxima
+
+r_gyro <- r_gyro %>% filter(mag_d>w_maxima)
+dim_gyro<-dim(r_gyro)
+
+write.csv(x=r_gyro,file=paste0(str_sub(whichfile,1,19),"filteredforbouts.csv"))
+print(paste0(whichfile,": ", dim_gyro))
+}
+
+```
+  
+
+#combine individual filtering results from accel and gyro
+```{r}
+setwd("~/Documents/IMU/boutsfile/")
+filelist <- data.table("filename" = list.files("~/Documents/IMU/boutsfile/accel_filter"))
+filelist <- filelist[order(filename)]
+head(filelist)
+# extremity + accel/gyro
+
+for (whichfile in filelist$filename) {
+  r_accel <- read_csv(paste0("~/Documents/IMU/boutsfile/accel_filter/", whichfile),show_col_types = FALSE)
+  r_gyro<- read_csv(paste0("~/Documents/IMU/boutsfile/gyro_filter/", str_sub(whichfile,1,13),"gyro_2filteredforbouts.csv"),show_col_types = FALSE)
+  # paste0(str_sub(whichfile,-6,-1),"mon_",URUL,"_",AG,"_231113.csv")
+  # 
+  # SM01_4mon_UL_accel_filteredforbouts <- read_csv("accel_filter/SM01_4mon_UL_accel_filteredforbouts.csv")
+  # SM01_4mon_UL_gyro_2filteredforbouts <- read_csv("gyro_filter/SM01_4mon_UL_gyro_2filteredforbouts.csv")
+dim(r_accel)
+dim(r_gyro)
+r_accel$times <- round(r_accel$times,2)
+r_gyro$times <- round(r_gyro$times,2)
+bouts<- merge(r_accel, r_gyro, by="times", all=F)
+dim(bouts)
+
+difference<-data.frame(diff(bouts$times))
+blank <- c("NA")
+difference<-rbind(blank,difference)
+bouts<-cbind(difference,bouts)
+colnames(bouts)[1]<-"difference_time"
+
+bouts$cutoff<-ifelse(bouts$difference_time>=0.5,111,0)
+
+dim(bouts)
+boutsdataset<-data.frame(bouts$times,bouts$difference_time,bouts$cutoff)
+colnames(boutsdataset)<-c("times","difference_time","cutoffdummy")
+write.csv(x=boutsdataset,file=paste0(str_sub(whichfile,1,13),"bouts.csv"))
+}
+```
+
+#prepare for further assessment on bouts characteristics, eg. durations
+```{r}
+setwd("~/Documents/IMU/boutsfile/")
+filelist <- data.table("filename" = list.files("~/Documents/IMU/boutsfile/combined"))
+filelist <- filelist[order(filename)]
+head(filelist)
+# extremity + accel/gyro
+
+for (whichfile in filelist$filename) {
+  bouts <- read_csv(paste0("~/Documents/IMU/boutsfile/combined/", whichfile),show_col_types = FALSE)
+  bouts<-bouts%>%filter(cutoffdummy==111)
+  bouts<-bouts[(-1),]
+  write.csv(x=bouts,file=paste0(str_sub(whichfile,1,13),"bouts_start.csv"))
+}
+```
+
+#preprocessing-time & magnitude - find"T1,T2"
+
+```{r}
+
+setwd("/Users/xiwensu/Documents/IMU/findT1T2DS")
+filelist <- data.table("filename" = list.files("/Users/xiwensu/Documents/IMU/data collection"))
+filelist <- filelist[order(filename)]
+
+head(filelist)#check retrieving correct files
+# extremity + accel/gyro
+URULlist <- c("UR","UL")#UR-> right arm, UL-> left arm
+AGlist <- c("accel","gyro")
+# whichfile<-filelist$filename
+
+for (whichfile in filelist$filename) {
+  tryCatch({
+  # extremity
+  for (URUL in URULlist) {
+    # accel/gyro
+    for (AG in AGlist) {
+
+  SM01_RA_accel <- read_csv(paste0("~/Documents/IMU/data collection/", whichfile, "/",URUL,"/",AG,".csv"),show_col_types = FALSE)
+        
+        accelgyro <- SM01_RA_accel
+        time<-accelgyro$`Timestamp (microseconds)` / 1000000 
+        
+        if (AG =="accel") {
+          # accel
+          x<-accelgyro$`Accel X (g)`
+          y<-accelgyro$`Accel Y (g)`
+          z<-accelgyro$`Accel Z (g)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>% 
+            mutate(x2 = x * 9.80665) %>% mutate(y2 = y * 9.80665) %>% 
+            mutate(z2 = z * 9.80665) %>% 
+            mutate(mag = sqrt((x2 * x2) + (y2 * y2) + (z2 * z2))) %>%
+            mutate(id_a=row_number()) #change ouput units and create acceleration magnitude
+        } else {
+          # gyro
+          x<-accelgyro$`Gyro X (°/s)`
+          y<-accelgyro$`Gyro Y (°/s)`
+          z<-accelgyro$`Gyro Z (°/s)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>%
+            mutate(x3 = x * 0.0174533) %>% mutate(y3 = y * 0.0174533) %>%
+            mutate(z3 = z * 0.0174533) %>%
+            mutate(mag = sqrt((x3 * x3) + (y3 * y3) + (z3 * z3))) %>%
+            mutate(id_a=row_number())
+        }
+        
+        write.csv(x=accelgyro,file=paste0(str_sub(whichfile,-6,-1),"mon_",URUL,"_",AG,"_ver1.csv"))
+        
+    }
+  }
+})
+
+}
+        
+```
+
+#graph sync taps for each session and find the last tap, eg. sm10_6months
+
+```{r}
+getwd()
+accelgyro <- read_csv("SM10_6mon_UR_accel_ver1.csv",show_col_types = FALSE)
+r_strt <- accelgyro %>% filter(times > 100 & times < 105)
+ggplot(r_strt, aes(x = times, y = mag)) + geom_line()
+################################################################
+accelgyro <- read_csv("SM10_6mon_UR_gyro_ver1.csv",show_col_types = FALSE)
+r_strt <- accelgyro %>% filter(times > 100 & times < 105)
+ggplot(r_strt, aes(x = times, y = mag)) + geom_line()
+################################################################
+accelgyro <- read_csv("SM10_6mon_UL_accel_ver1.csv",show_col_types = FALSE)
+r_strt <- accelgyro %>% filter(times > 103 & times < 105)
+ggplot(r_strt, aes(x = times, y = mag)) + geom_line()
+################################################################
+accelgyro <- read_csv("SM10_6mon_UL_gyro_ver1.csv",show_col_types = FALSE)
+r_strt <- accelgyro %>% filter(times > 100 & times < 105)
+ggplot(r_strt, aes(x = times, y = mag)) + geom_line()
+```
+
