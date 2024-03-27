@@ -1,0 +1,366 @@
+#load libraries
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(stringr)
+library(readxl)
+```
+
+
+# test
+
+```{r message=FALSE}
+
+# setting working dir
+setwd("/Users/xiwensu/Documents/IMU/5min_seg")
+getwd()
+
+# load data: right arm
+IMUinput_RA <- read_excel("/Users/xiwensu/Documents/IMU/spreadsheet-note/IMU input 23.8.17.xlsx", sheet = "Right Arm")
+setDT(IMUinput_RA) # convert into data.table format
+IMUinput_RA <- IMUinput_RA[,c(1:5,8:9)]
+colnames(IMUinput_RA) <- c("subjID","T1","T2","Stime","Etime","Gyro_T1","Gyro_T2") # add col names
+IMUinput_RA[,T1:=as.numeric(T1)][,T2:=as.numeric(T2)][,Stime:=as.numeric(Stime)][,Etime:=as.numeric(Etime)] # convert into numeric
+
+# load data: left arm
+IMUinput_LA <- read_excel("/Users/xiwensu/Documents/IMU/spreadsheet-note/IMU input 23.8.17.xlsx", sheet = "Left Arm")
+setDT(IMUinput_LA) # convert into data.table format
+colnames(IMUinput_LA) <- c("subjID","T1","T2","Gyro_T1","Gyro_T2") # add col names
+IMUinput_LA[,T1:=as.numeric(T1)][,T2:=as.numeric(T2)] # convert into numeric
+
+# find all files: subject + session
+filelist <- data.table("filename" = list.files("~/Documents/IMU/data collection/"))
+filelist <- filelist[order(filename)]
+
+# extremity + accel/gyro
+URULlist <- c("UR","UL")
+AGlist <- c("accel","gyro")
+
+# create two empty data tables to save all subjects bouts data
+library(data.table)
+allLeftBouts = data.table()
+allRightBouts = data.table()
+allsessionDuration = data.table() # empty table to save total session time from all subjects
+
+##################### start to analyze ########################################
+
+
+for (whichfile in filelist$filename) {
+  
+  tryCatch({
+    
+    
+    # for (i in 1:nrow(filelist)) {
+    #   whichfile = filelist[i,filename] 
+    
+    # find a file
+    # whichfile <- filelist[37,filename] # find subject data file name
+    
+    # find subject id + session 
+    whichsubjsess <- str_sub(whichfile,-6,-1) 
+    
+    # extremity 
+    for (URUL in URULlist) {
+      
+      # accel/gyro
+      for (AG in AGlist) {
+        
+        
+        # find out T1 and T2, Stime and Etime by subjectID
+        if (AG == "accel") {
+          # "accel"
+          if (URUL == "UR") {
+            T1 = IMUinput_RA[subjID==whichsubjsess, T1]
+            T2 = IMUinput_RA[subjID==whichsubjsess, T2]
+          } 
+          if (URUL == "UL") {
+            T1 = IMUinput_LA[subjID==whichsubjsess, T1]
+            T2 = IMUinput_LA[subjID==whichsubjsess, T2]
+          } 
+        } else {
+          # "gyro
+          if (URUL == "UR") {
+            # Gyro T1 
+            Gyro_T1_samediff = IMUinput_RA[subjID==whichsubjsess, Gyro_T1]
+            if (Gyro_T1_samediff == "same") { 
+              T1 = IMUinput_RA[subjID==whichsubjsess, T1]
+            } else {
+              T1 = as.numeric(IMUinput_RA[subjID==whichsubjsess, Gyro_T1])
+            }
+            # Gyro T2
+            Gyro_T2_samediff = IMUinput_RA[subjID==whichsubjsess, Gyro_T2]
+            if (Gyro_T2_samediff == "same") { 
+              T2 = IMUinput_RA[subjID==whichsubjsess, T2]
+            } else {
+              T2 = as.numeric(IMUinput_RA[subjID==whichsubjsess, Gyro_T2])
+            }
+          }
+          if (URUL == "UL") {
+            # Gyro T1 
+            Gyro_T1_samediff = IMUinput_LA[subjID==whichsubjsess, Gyro_T1]
+            if (Gyro_T1_samediff == "same") { 
+              T1 = IMUinput_LA[subjID==whichsubjsess, T1]
+            } else {
+              T1 = as.numeric(IMUinput_LA[subjID==whichsubjsess, Gyro_T1])
+            }
+            # Gyro T2
+            Gyro_T2_samediff = IMUinput_LA[subjID==whichsubjsess, Gyro_T2]
+            if (Gyro_T2_samediff == "same") { 
+              T2 = IMUinput_LA[subjID==whichsubjsess, T2]
+            } else {
+              T2 = as.numeric(IMUinput_LA[subjID==whichsubjsess, Gyro_T2])
+            }
+          }  
+        }
+        
+        # use right arm data 
+        Stime = IMUinput_RA[subjID==whichsubjsess, Stime]
+        Etime = IMUinput_RA[subjID==whichsubjsess, Etime]
+        
+        
+        
+        # read file by subject
+        # SM01_RA_accel <- read_csv("~/Documents/IMU/data collection/23.6.13 SM15_2/UR/accel.csv")
+        accelgyro <- read_csv(paste0("~/Documents/IMU/data collection/", whichfile, "/",URUL,"/",AG,".csv"),show_col_types = FALSE)
+        
+        time<-accelgyro$`Timestamp (microseconds)` / 1000000
+        
+        if (AG =="accel") {
+          # accel
+          x<-accelgyro$`Accel X (g)`
+          y<-accelgyro$`Accel Y (g)`
+          z<-accelgyro$`Accel Z (g)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>% 
+            mutate(x2 = x * 9.80665) %>% mutate(y2 = y * 9.80665) %>% 
+            mutate(z2 = z * 9.80665) %>% 
+            mutate(mag = sqrt((x2 * x2) + (y2 * y2) + (z2 * z2))) %>%
+            mutate(id_a=row_number())
+        } else {
+          # gyro
+          x<-accelgyro$`Gyro X (°/s)`
+          y<-accelgyro$`Gyro Y (°/s)`
+          z<-accelgyro$`Gyro Z (°/s)`
+          
+          accelgyro <- accelgyro %>% mutate(times = time - min(time)) %>%
+            mutate(x3 = x * 0.0174533) %>% mutate(y3 = y * 0.0174533) %>%
+            mutate(z3 = z * 0.0174533) %>%
+            mutate(mag = sqrt((x3 * x3) + (y3 * y3) + (z3 * z3))) %>%
+            mutate(id_a=row_number())
+        }
+        
+        
+        dim(accelgyro)
+        # r_strt <- accelgyro %>% filter(times >28.5 & times < 30)
+        r_strt <- accelgyro %>% filter(times >T1 & times < T2)
+        
+        # plot 
+        ggplot(r_strt, aes(x=times, y=mag)) + geom_line()
+        
+        # find peak
+        maxrow = r_strt[which.max(r_strt$mag),]$id_a
+        accelgyro<- accelgyro[-(1:maxrow),]
+        accelgyro <- accelgyro %>% mutate(times = times - min(times)) 
+        dim(accelgyro)
+        # accelgyro<- accelgyro %>% filter(times>356 & times < 885) %>% mutate(mag_d = mag-median(mag))
+        # NOte that times may be rounded automatically, to get the all digits of a number, use View(data.frame(sprintf("%.10f",times)))
+        accelgyro<- accelgyro %>% filter(times>Stime & times < Etime) %>% mutate(mag_d = mag-median(mag))
+        dim(accelgyro)
+        
+        # write.csv(x=sm03ra6,file="SM15_2mon_Uaccelgyro.csv")
+        thisfilename = paste0(getwd(), "/",AG,"/",str_sub(whichfile,-6,-1),"mon_",URUL,"_",AG,"_testing.csv")
+        write.csv(x=accelgyro, file = thisfilename)
+        
+        # print T1, T2, Stime, Etime
+        print(paste0(whichfile,": ",URUL, "/", AG," T1 = ", T1, ", T2 = ", T2, ", Stime = ", Stime, ", Etime = ", Etime))
+        print(paste0("if saved, location: ", thisfilename))
+        
+      } # AG list loop
+      
+      
+      ######################## Calculate Duration ############################
+      
+      # Note that this step need 2 files: accel and gyro from Left or Right side in a subject
+      
+      # load accel data 
+      # r_accel <- read_csv("/Users/xiwensu/Documents/IMU/5min_seg/accel/SM04_2mon_UL_accel_231113.csv",show_col_types = FALSE)
+      accelfilename = paste0(getwd(), "/accel/",str_sub(whichfile,-6,-1),"mon_",URUL,"_accel_testing.csv")
+      r_accel <- read_csv(accelfilename, show_col_types = FALSE)
+      r_accel$SMA31 <- TTR::SMA(r_accel$mag_d,n=31)
+      
+      attach(r_accel)
+      max.time=times[ggpmisc:::find_peaks(SMA31)]
+      max.mag=mag_d[ggpmisc:::find_peaks(SMA31)]
+      df_max<-data.frame(max.mag)
+      df_max<- df_max%>%filter(max.mag>=1) %>%
+        summarise(maxima=mean(max.mag)-1/2*sd(max.mag))
+      maxima<-df_max$maxima
+      maxima
+      
+      min.time<-times[ggpmisc:::find_peaks(-SMA31)]
+      min.mag<-mag_d[ggpmisc:::find_peaks(-SMA31)]
+      df_min<-data.frame(min.mag)
+      df_min<- df_min%>%filter(min.mag<=-1)%>%
+        summarise(minima=mean(min.mag)+1/2*sd(min.mag))
+      minima<-df_min$minima
+      minima
+      
+      r_accel <- r_accel %>% filter(mag_d>maxima | mag_d<minima)
+      dim(r_accel)
+      
+      # load gyro data
+      # SM01_RA_gyro <- read_csv("/Users/xiwensu/Documents/IMU/5min_seg/gyro/SM04_2mon_UL_gyro_231113.csv")
+      gyrofilename = paste0(getwd(), "/gyro/",str_sub(whichfile,-6,-1),"mon_",URUL,"_gyro_testing.csv")
+      r_gyro <- read_csv(gyrofilename, show_col_types = FALSE)
+      r_gyro$w_SMA31 <- TTR::SMA(r_gyro$mag_d,n=31)
+      
+      attach(r_gyro)
+      max.w_mag=mag_d[ggpmisc:::find_peaks(w_SMA31)]
+      df_w_max<-data.frame(max.w_mag)
+      df_w_max<- df_w_max%>%filter(max.w_mag>=0.32) %>%
+        summarise(w_maxima=mean(max.w_mag)-1/2*sd(max.w_mag))
+      w_maxima<-df_w_max$w_maxima
+      w_maxima
+      
+      r_gyro <- r_gyro %>% filter(mag_d>w_maxima)
+      dim(r_gyro)
+      
+      dim(r_accel)
+      dim(r_gyro)
+      r_accel$times <- round(r_accel$times,2)
+      r_gyro$times <- round(r_gyro$times,2)
+      bouts<- merge(r_accel, r_gyro, by="times", all=F)
+      dim(bouts)
+      
+      library(data.table)
+      bouts = setDT(bouts) # convert from data frame to data table format
+      
+      # select needed variable
+      bouts = bouts[,.( times )]
+      
+      # find out the times in previous row
+      bouts[,times_previous:= shift(times, type="lag")]
+      # find out time difference between current row and previous row
+      bouts[,difference_time:= times-times_previous] 
+      # generate cutoffdummy column
+      bouts[,cutoffdummy:= ifelse(difference_time>=0.5,111,0)]
+      # replace 1st row NA 
+      bouts[is.na(cutoffdummy), cutoffdummy:=111]
+      
+      # find out the previous row before cutoffdummy 111
+      bouts[,tmp_var:= shift(cutoffdummy,type="lead")]
+      bouts[tmp_var==111,tmp_var:=2] # the row before 111
+      # find out rows that is 111 or 2
+      bouts[, cutoffdummy_new:=cutoffdummy+tmp_var]
+      # filter based on tmp_var2 
+      # Note that if multiple 111 appear together, tmp_var2 would be 113 (111+2), so these rows would not be included.
+      bouts = bouts[cutoffdummy_new %in% c(111,2)]
+      
+      # clean unused columns
+      bouts = bouts[,.( times, cutoffdummy_new)]
+      
+      # Now let's use timws with cutoffdummy_new==2 minus times with cutoffdummy_new==111
+      bouts[, times_prev:= shift(times, type="lag")]
+      bouts[cutoffdummy_new==2, duration:= times - times_prev]
+      # keep useful rows
+      bouts = bouts[!is.na(duration)]
+      # remove unused columns
+      bouts[,cutoffdummy_new:=NULL]
+      
+      # add subject name
+      bouts[,subj:= paste0(str_sub(whichfile,-6,-1),"mon")]
+      
+      
+      # check duration results
+      print(paste0("Here are the top 6 rows of duration for ", URUL))
+      print(head(bouts))
+      
+      # save duration results
+      boutsfilename = paste0("/Users/xiwensu/Documents/IMU/boutsfile/combined/",str_sub(whichfile,-6,-1),"mon_",URUL,"_bouts_testing.csv")
+      write.csv(x=bouts, file = boutsfilename)
+      # print location
+      print(paste0("if saved, location: ", boutsfilename))
+      
+      
+      # To merge left right data together
+      # assign a new variable name for left duration (UL_bouts), and right duration (UR_bouts)
+      assign(paste0(URUL,"_bouts"), bouts)
+      
+    } # URUL list loop
+    
+    # by now, we have one subject duration results.
+    # next step is to combine all subjects duration together.
+    
+    ############### combine all subject results together #####################
+    allLeftBouts = rbindlist(list(allLeftBouts, UL_bouts), use.names = TRUE) # check if UL_bouts is the variable name for left side
+    allRightBouts = rbindlist(list(allRightBouts, UR_bouts), use.names = TRUE)
+    
+    # get total session 
+    subjsessionDuration = data.table(subj = paste0(str_sub(whichfile,-6,-1),"mon"),
+                                     sum_total = Etime - Stime)
+    allsessionDuration = rbindlist(list(allsessionDuration, subjsessionDuration), use.names = TRUE) # save all subjects together
+    
+  }, 
+  error=function(e) {
+    
+    print(paste0("error: ", whichfile))
+    
+  },
+  warning = function(w){
+    
+    return(NA)
+    
+  }) # tryCatch
+  
+} # subject + session loop
+
+
+# check data
+head(allLeftBouts)
+dim(allLeftBouts)
+head(allRightBouts)
+dim(allRightBouts)
+
+# total session time
+head(allsessionDuration)
+dim(allsessionDuration)
+
+################ further analyses: subject mean, sd, sum #######################
+
+# calculate subject mean
+LeftResults = allLeftBouts[,.( 
+  meanDur = mean(duration), # mean duration
+  sdDur = sd(duration), # Standard Deviation duration
+  sumDur = sum(duration) # sum duration
+), keyby =.(subj)]
+
+RightResults = allRightBouts[,.( 
+  meanDur = mean(duration), # mean duration
+  sdDur = sd(duration), # Standard Deviation duration
+  sumDur = sum(duration) # sum duration
+), keyby =.(subj)]
+
+
+# add a new column of total session time
+LeftResults = allsessionDuration[LeftResults, on=.(subj)]
+RightResults = allsessionDuration[RightResults, on=.(subj)]
+
+# calculate proportion
+LeftResults[, proportion:=sumDur/sum_total]
+RightResults[, proportion:=sumDur/sum_total]
+
+# check results
+View(LeftResults)
+View(RightResults)
+
+# save into csv
+LeftResultsfilename = paste0("/Users/xiwensu/Documents/IMU/duration analysis /032224/allsubjects_leftDuration.csv")
+write.csv(x=LeftResults, file = LeftResultsfilename)
+RightResultsfilename = paste0("/Users/xiwensu/Documents/IMU/duration analysis /032224/allsubjects_rightDuration.csv")
+write.csv(x=RightResults, file = RightResultsfilename)
+
+
+# ################################################################################
